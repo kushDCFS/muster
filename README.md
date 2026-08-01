@@ -1,12 +1,22 @@
-# Rural EMS Coverage Forecast — prototype
+# Muster — crew-assembly reliability for volunteer fire & EMS
 
-A working prototype dashboard for rural EMS coverage forecasting, covering 19
-**real** California counties. County names, population, land area, and the
-weather calendar (3 years of history + 16-day forecast) are real, sourced from
-public data. Daily/hourly call counts are still **modeled** — no county
-publishes a public per-day EMS dispatch log, so there is nothing to fit call
-counts to directly. See `data/DATA_SOURCES.md` for full citations and
-`data/FINDINGS.md` for the honest framing this prototype's method is built on.
+**The question no existing tool answers: when the tone goes out, does a crew
+actually form?**
+
+Urban EMS software optimizes where to position ambulances. A county with one
+ambulance has no placement decision to make. Its failure mode is different and
+almost entirely unmeasured — the page goes out and nobody is available to
+answer it, because 70–74% of rural responders hold outside jobs and 55% of
+agencies have six or fewer people providing 80% of their staffing.
+
+This measures that, from an agency's own dispatch export, using the interval
+between dispatch and the unit going en route. It scores against **NFPA 1720**,
+the national deployment standard that exists precisely because volunteers
+cannot guarantee availability the way on-duty career staff can.
+
+Applies to **volunteer fire departments (24,208 in the US — 82% of all
+departments)** as much as rural EMS; the data and the failure are identical,
+and in most rural counties they are the same organization.
 
 ## Run
 
@@ -134,6 +144,38 @@ Running against real data immediately caught a real gap: SF's column names
 (`dispatch_dttm`, `response_dttm`) were not in the alias list, which no amount
 of synthetic testing would have surfaced.
 
+## Fire departments (`model/audit.py`)
+
+The same file, the same code path. Fire CAD exports carry the same two
+timestamps; NFIRS incident types are parsed to auto-detect whether an agency is
+fire, EMS, or mixed, which selects the applicable NFPA 1720 turnout target
+(90s fire / 60s EMS, 90% of the time).
+
+Validated on two real San Francisco datasets, both 2024, run unmodified:
+
+| | Runs | Median turnout | NFPA 1720 (60s) |
+|---|---|---|---|
+| Ambulances | 40,000 | 0.1 min | 92.9% — passes |
+| Fire engines | 25,000 | 1.4 min | **30.3% — fails** |
+
+Same city, same year, same stations. A well-funded career department misses the
+national turnout standard on ~70% of its runs and nothing currently surfaces
+that to anyone. That figure also feeds ISO Public Protection Classification
+reviews, where half the score is department quality including staffing.
+
+## Cross-agency benchmark (`model/benchmark.py`)
+
+Crew-assembly reliability does not exist as a published dataset anywhere. Every
+audit contributes **one de-identified row** — service type, volume band, failure
+rate, median assembly, workday penalty. No agency name, no location, no
+incident, no person.
+
+Cohorts are matched on service type and call volume, and a percentile is
+withheld until at least 8 comparable agencies exist, because a percentile
+computed from three agencies is noise dressed as insight. `GET
+/api/audit/benchmark/cohort` reports the current size honestly — it starts at
+zero.
+
 ## Showing this to a real agency
 
 The dashboard has six tabs, ordered for a live walkthrough:
@@ -168,6 +210,10 @@ model/
   temporal.py            partial-pooling GLM (ported from temporal_pooling.py), per-county design matrices
   availability.py         transport-duration survival fit + Erlang-C
   fit.py                  orchestration: cohort split, fit once at startup, serve from memory
+  audit.py                dispatch-export parsing, crew-assembly classification, NFPA 1720
+  optimizer.py            which contiguous staffed blocks remove the most failures
+  benchmark.py            de-identified cross-agency cohort + percentiles
+  impact.py               cost channels, each tied to a published figure
 api/
   routes.py             forecast / gaps / actions / validation / impact / usecases
   audit_routes.py       upload, demo, findings, report
