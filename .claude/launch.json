@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ems-dashboard",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app:main", "--reload", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Runtime-generated: the benchmark cohort accumulates a de-identified row per
+# audit. It is local state, not source, and committing it would publish one
+# contributor's cohort as if it were everyone's.
+data/benchmark_cohort.json
+
+# Uploaded agency data must never be committed. Audits are held in memory only,
+# but this guards against anyone dropping a real export into the repo to test.
+data/uploads/
+*.upload.csv
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Scratch
+*.bak
+*.bak.*
+scratch/

@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rural EMS Coverage Forecast (prototype)</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <h1>Rural EMS Coverage Forecast</h1>
+    <p class="tagline">Predicts when a county's 911 coverage is likely to be stretched thin, so an agency
+      can staff ahead of it, line up backup, or check in on at-risk residents before they ever have to call.</p>
+    <span class="badge-sim">19 real CA counties &middot; real weather &middot; MODELED call counts (see Methods)</span>
+  </div>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="coverage">Coverage</button>
+    <button class="tab-btn" data-tab="audit">Audit</button>
+    <button class="tab-btn" data-tab="impact">Impact</button>
+    <button class="tab-btn" data-tab="usecases">Use cases</button>
+    <button class="tab-btn" data-tab="methods">Methods</button>
+    <button class="tab-btn" data-tab="faq">FAQ</button>
+  </nav>
+</header>
+
+<div class="county-bar">
+  <label for="county-select">County</label>
+  <select id="county-select"></select>
+  <span id="county-meta" class="county-meta"></span>
+</div>
+
+<main id="tab-coverage" class="tab-panel active">
+
+  <section class="panel realdata-panel">
+    <div class="realdata-head">
+      <div>
+        <h2>Use your real numbers</h2>
+        <p class="subtle">Four values below are things this prototype currently <strong>estimates</strong>
+          but your agency actually <em>knows</em>. Enter any of them and everything on this page recomputes
+          against your real operation instead of our guess. Nothing is saved or sent anywhere.</p>
+      </div>
+      <button type="button" id="realdata-toggle" class="realdata-toggle">Enter real data</button>
+    </div>
+    <form id="realdata-form" class="realdata-form" hidden>
+      <div class="rd-field">
+        <label for="rd-ambulances">Ambulances in service</label>
+        <input type="number" id="rd-ambulances" min="1" max="99" step="1" placeholder="—">
+        <span class="rd-hint" id="rd-ambulances-hint"></span>
+      </div>
+      <div class="rd-field">
+        <label for="rd-roster">People on the response roster</label>
+        <input type="number" id="rd-roster" min="1" max="999" step="1" placeholder="—">
+        <span class="rd-hint" id="rd-roster-hint"></span>
+      </div>
+      <div class="rd-field">
+        <label for="rd-calls">Calls per year</label>
+        <input type="number" id="rd-calls" min="1" max="200000" step="1" placeholder="—">
+        <span class="rd-hint" id="rd-calls-hint"></span>
+      </div>
+      <div class="rd-field">
+        <label for="rd-transport">Avg. minutes per call (out of service)</label>
+        <input type="number" id="rd-transport" min="1" max="600" step="1" placeholder="—">
+        <span class="rd-hint" id="rd-transport-hint"></span>
+      </div>
+      <div class="rd-actions">
+        <button type="submit" class="rd-apply">Recalculate with my numbers</button>
+        <button type="button" id="rd-reset" class="rd-reset">Reset to estimates</button>
+      </div>
+    </form>
+    <div id="realdata-status" class="realdata-status" hidden></div>
+  </section>
+
+  <section class="panel impact-panel">
+    <h2>Without this forecast vs. with it</h2>
+    <p class="subtle">This county's single worst predicted hour in the next 14 days, and how much safer it
+      gets if the recommended action below is taken.</p>
+    <div id="impact-compare" class="impact-hero"></div>
+    <div id="impact-caption" class="impact-caption"></div>
+    <div class="impact-stats">
+      <div class="stat-tile">
+        <div class="stat-value" id="stat-windows">&ndash;</div>
+        <div class="stat-label">elevated-risk windows flagged, next 14 days</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-value" id="stat-reduction">&ndash;</div>
+        <div class="stat-label">predicted reduction with recommended staffing</div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-value" id="stat-residents">&ndash;</div>
+        <div class="stat-label">residents flagged for prevention outreach</div>
+      </div>
+    </div>
+    <div class="annualized-row">
+      <div class="stat-tile wide">
+        <div class="stat-label" style="margin-bottom:6px;">Estimated 911 calls per year arriving during an uncovered hour</div>
+        <div id="annualized-compare" class="annualized-compare"></div>
+      </div>
+    </div>
+    <p class="fine-print" id="annualized-note"></p>
+  </section>
+
+  <section class="panel">
+    <h2>7-day coverage forecast</h2>
+    <div class="explainer">
+      <p class="explainer-lead">In plain terms: each percentage is the chance that, at that day's single
+        worst hour, a 911 call comes in and <strong>there's no ambulance ready to go</strong> &mdash; either
+        because the truck is already out, or because nobody's available to crew it.</p>
+      <ul class="explainer-list">
+        <li>It's a worst-moment snapshot, <strong>not</strong> the share of calls that go unanswered all day
+          &mdash; every other hour that day is usually much lower (click a day to see all 24 hours).</li>
+        <li>In most rural counties, "nobody's available to crew it" is the bigger of the two reasons, not
+          "the truck's busy" &mdash; see the "Why coverage gap = crew assembly" note on the Methods tab.</li>
+        <li>Low / Below avg / Typical / Elevated / High uses the <strong>same scale for every county</strong>
+          (under 3% / 3&ndash;10% / 10&ndash;20% / 20&ndash;35% / over 35%) &mdash; "Elevated" means the same
+          thing no matter which county you're looking at.</li>
+      </ul>
+    </div>
+    <p class="subtle">Click a day for the full 24-hour breakdown.</p>
+    <div id="week-row" class="week-row"></div>
+  </section>
+
+  <section class="panel" id="day-detail-panel" hidden>
+    <h2 id="day-detail-title">Hourly breakdown</h2>
+    <p class="subtle">Height of each bar = chance a call arriving that hour goes uncovered (truck already
+      out, or no crew assembles in time &mdash; hover a bar for the breakdown between the two).
+      The thin vertical mark is the uncertainty range (80% confidence).</p>
+    <div id="hourly-chart" class="hourly-chart"></div>
+    <div class="why-box">
+      <h3>Why</h3>
+      <div id="drivers-list" class="drivers-list"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Predicted uncovered windows <span class="subtle-inline">(next 14 days, relative to this county's own risk distribution)</span></h2>
+    <p class="subtle">The hours below are this county's own top 15% riskiest, not hours above some fixed
+      danger line &mdash; see them as "worst compared to this county's typical week," not "objectively bad."</p>
+    <div id="gaps-list" class="gaps-list"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Recommended actions</h2>
+    <div id="action-cards" class="action-cards"></div>
+  </section>
+
+</main>
+
+<main id="tab-audit" class="tab-panel">
+
+  <section class="panel">
+    <h2>Coverage reliability audit</h2>
+    <div class="explainer">
+      <p class="explainer-lead">Everything else in this tool is a <strong>forecast</strong>. This is a
+        <strong>measurement</strong> &mdash; of what already happened in your own dispatch history.</p>
+      <ul class="explainer-list">
+        <li>It counts calls where <strong>no crew formed</strong> or assembly took too long, using the
+          dispatch&rarr;en-route interval already in your CAD or ePCR export.</li>
+        <li>No prediction, no assumptions about your county, and no claims about patient outcomes
+          &mdash; just your own numbers, counted.</li>
+        <li>The output is a <strong>report you can hand to a county board or attach to a SIREN grant
+          application</strong>, which needs exactly this kind of documented need.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Send us this file</h2>
+    <p class="subtle">One CSV. Any export from ESO, ImageTrend, Zoll, or a county CAD system will work
+      &mdash; column names are matched automatically. Only the dispatch timestamp is strictly required.</p>
+    <div id="audit-fields" class="audit-fields"></div>
+    <div class="audit-actions">
+      <a class="btn-link" href="/api/audit/template.csv" download>Download blank template (.csv)</a>
+    </div>
+    <div class="privacy-note" id="audit-privacy"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Run an audit</h2>
+    <form id="audit-form" class="audit-form">
+      <div class="rd-field">
+        <label for="audit-agency">Agency name (appears on the report)</label>
+        <input type="text" id="audit-agency" placeholder="e.g. Mariposa County Ambulance">
+      </div>
+      <div class="rd-field">
+        <label for="audit-fee">Your mutual-aid fee per request ($)</label>
+        <input type="number" id="audit-fee" min="0" max="10000" step="10" placeholder="350">
+        <span class="rd-hint">Defaults to $350 (published benchmark) if left blank.</span>
+      </div>
+      <div class="rd-field wide">
+        <label for="audit-file">Dispatch export (.csv)</label>
+        <input type="file" id="audit-file" accept=".csv,.tsv,.txt">
+        <span class="rd-hint">Held in memory for the analysis only &mdash; never written to disk.</span>
+      </div>
+      <div class="rd-actions">
+        <button type="submit" class="rd-apply">Analyze my data</button>
+        <button type="button" id="audit-demo" class="rd-reset">Run on real reference data (40k SF dispatches)</button>
+      </div>
+    </form>
+    <div id="audit-status" class="realdata-status" hidden></div>
+  </section>
+
+  <section class="panel" id="audit-results-panel" hidden>
+    <h2>Findings</h2>
+    <div id="audit-headline"></div>
+    <div id="audit-pattern"></div>
+    <div id="audit-parse" class="parse-report"></div>
+  </section>
+
+  <section class="panel" id="optimizer-panel" hidden>
+    <h2>Coverage optimizer</h2>
+    <div class="explainer">
+      <p class="explainer-lead">If you could pay for a limited number of staffed hours each week,
+        <strong>which hours should they be?</strong></p>
+      <ul class="explainer-list">
+        <li>Failures are spread across 168 hour-of-week slots. Picking the shifts that remove the most
+          of them isn't something you can work out in your head.</li>
+        <li>Coverage is chosen in <strong>real shift blocks</strong> (4 hours or more), not scattered
+          single hours &mdash; nobody staffs an hour here and an hour there.</li>
+      </ul>
+    </div>
+
+    <div class="opt-controls">
+      <div class="opt-slider-wrap">
+        <label for="opt-hours">Staffed hours per week you can afford</label>
+        <input type="range" id="opt-hours" min="4" max="84" step="4" value="20">
+        <div class="opt-scale"><span>4</span><span>24</span><span>44</span><span>64</span><span>84</span></div>
+      </div>
+      <div class="rd-field opt-cost">
+        <label for="opt-cost">Cost per hour (2-person crew)</label>
+        <input type="number" id="opt-cost" min="10" max="500" step="5" value="60">
+        <span class="rd-hint">Your stipend or wage rate.</span>
+      </div>
+    </div>
+
+    <div class="opt-headline" id="opt-headline"></div>
+    <div class="opt-grid">
+      <div class="opt-col">
+        <h3>Recommended shifts</h3>
+        <div id="opt-blocks" class="opt-blocks"></div>
+      </div>
+      <div class="opt-col">
+        <h3>What each extra hour buys</h3>
+        <div id="opt-curve"></div>
+        <p class="fine-print" id="opt-knee"></p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:22px;">Where failures actually happen</h3>
+    <p class="subtle">Every hour of the week. Darker = more calls where no crew formed.
+      Outlined cells are the shifts recommended above.</p>
+    <div id="opt-heatmap" class="wk-heatmap"></div>
+    <p class="fine-print" id="opt-assumptions"></p>
+  </section>
+
+  <section class="panel" id="audit-docs-panel" hidden>
+    <h2>Documents</h2>
+    <p class="subtle">Both are generated from the same analysis and are printable to PDF.</p>
+    <div class="doc-cards">
+      <a id="audit-report-link" class="doc-card" href="#" target="_blank" rel="noopener">
+        <div class="doc-title">Coverage Reliability Report</div>
+        <div class="doc-desc">What happened, when it clusters, what it cost, and what this analysis
+          does <em>not</em> claim. For the chief and the county board.</div>
+        <div class="doc-cta">Open report &rarr;</div>
+      </a>
+      <a id="audit-packet-link" class="doc-card primary" href="#" target="_blank" rel="noopener">
+        <div class="doc-title">Funding Request Evidence</div>
+        <div class="doc-desc">The same findings as grant-application sections: documented need, the
+          specific ask, projected outcome, cost of inaction. Attach to SIREN or a state program.</div>
+        <div class="doc-cta">Open packet &rarr;</div>
+      </a>
+    </div>
+  </section>
+
+</main>
+
+<main id="tab-impact" class="tab-panel">
+
+  <section class="panel">
+    <h2>What this is worth, for <span id="impact-county-name">this county</span></h2>
+    <p class="subtle">Four channels, each built on a real published figure. The dollar amounts come from
+      other agencies' documented results applied to this county's modeled numbers &mdash; they are
+      estimates, not measured outcomes here. Every card names its source and what remains uncertain.
+      If you entered your real numbers on the Coverage tab, these reflect them.</p>
+    <div id="impact-headline" class="impact-headline"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Channel detail</h2>
+    <div id="impact-channels" class="impact-channels"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Why there is no "lives saved" number here</h2>
+    <div class="explainer">
+      <p class="explainer-lead">The most common way to make a tool like this look impressive is to convert
+        a coverage improvement into lives saved, then multiply by a Value of Statistical Life
+        (~$13M each) to produce an enormous dollar figure. <strong>We deliberately don't.</strong></p>
+      <p style="margin:0;">A systematic review of 115 studies and 691,056 patients found insufficient
+        evidence linking EMS response time to survival at the margins this product operates in. Building
+        a headline number on a causal link the literature doesn't support would be exactly the kind of
+        result this project's own <code>FINDINGS.md</code> was written to reject. Every figure on this
+        page is a cost or workload number that stands without that assumption.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>The national picture</h2>
+    <p class="subtle">Context for why this problem is worth solving at all &mdash; all figures real and cited.</p>
+    <div id="national-context" class="national-grid"></div>
+  </section>
+
+</main>
+
+<main id="tab-usecases" class="tab-panel">
+
+  <section class="panel">
+    <h2>Where this would help most</h2>
+    <p class="subtle">All 19 counties, ranked by how many 911 calls per year the model estimates would
+      arrive during an uncovered hour &mdash; and how many of those a standing mutual-aid arrangement
+      would cover. The pattern is consistent and is the product's core thesis: <strong>counties with one
+      or two ambulances and a thin roster have the most to gain; large staffed departments have almost
+      nothing to gain.</strong> Click any county to open it on the Coverage tab.</p>
+    <div id="usecase-cards" class="usecase-cards"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Full ranking</h2>
+    <div id="usecase-table" class="usecase-table"></div>
+    <p class="fine-print">Estimated counts from the model, not observed outcomes &mdash; see FAQ. The
+      "avoided" column is the difference between the county's current modeled exposure and the same
+      county with a standing mutual-aid arrangement in place year-round.</p>
+  </section>
+
+</main>
+
+<main id="tab-methods" class="tab-panel">
+
+  <section class="panel">
+    <h2>Data provenance</h2>
+    <p class="subtle">This dashboard covers 19 real California counties. What's real and what's modeled:</p>
+    <div class="provenance-grid">
+      <div>
+        <h4>Real</h4>
+        <ul>
+          <li>County names, 2024 population (US Census Bureau)</li>
+          <li>Land area &amp; centroid coordinates (US Census Gazetteer)</li>
+          <li>3-year weather history + 16-day forecast: daily max temp, precipitation, snowfall at each county's centroid (Open-Meteo, no key required)</li>
+          <li>EMS response rate per 1,000 population by LEMSA region, CY2020 (California EMSA Annual EMS Data Report)</li>
+          <li>Ambulance provider structure for Alpine &amp; Plumas counties (public agency pages)</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Modeled (no public source exists at this granularity)</h4>
+        <ul>
+          <li>Daily/hourly call counts &mdash; no county publishes a public per-day dispatch log</li>
+          <li>Per-call transport durations &mdash; scaled from real land area, not observed</li>
+          <li>Ambulance fleet size for 17 of 19 counties &mdash; a documented population heuristic</li>
+          <li>Volunteer roster size &mdash; estimated from ambulance count (~8/unit), not a real roster</li>
+          <li>Crew-assembly failure probability (the mechanism driving most of the coverage-gap number)
+            &mdash; per-volunteer availability by time-of-day is an illustrative assumption informed by
+            published rural EMS workforce research, not fit to any real county's roster</li>
+          <li>Prevention block-group risk data &mdash; fully synthetic by design (no real sub-county microdata)</li>
+        </ul>
+      </div>
+    </div>
+    <p class="fine-print">Full citations in <code>data/DATA_SOURCES.md</code>.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Why coverage gap = crew assembly, not truck-busy</h2>
+    <div class="explainer">
+      An earlier version of this model treated "coverage gap" as urban queueing theory: P(the truck is
+      already out on another call), via an Erlang-C approximation. That's the wrong mechanism for most
+      rural systems &mdash; rural ambulance utilization typically runs 5&ndash;15% (vs. 30&ndash;50% urban
+      targets), so simultaneous-call collisions are rare by construction. The rural EMS literature
+      documents a different, bigger failure mode: <strong>a crew simply doesn't form</strong> for the
+      tone-out, because 70&ndash;74% of rural EMS providers aren't full-time EMS and carry outside jobs, and
+      63% of Wisconsin's volunteer-staffed agencies don't provide continuous 24/7/365 coverage at all. This
+      model now combines both: P(uncovered) = 1 &minus; P(truck free) &times; P(crew assembles), where the
+      crew-assembly term is driven by time-of-day/weekday (workday hours = fewer volunteers reachable) and
+      roster size. <strong>The per-volunteer availability numbers behind that term are a labeled assumption,
+      not a fitted or observed quantity</strong> &mdash; no public per-county roster-response dataset exists.
+      Closing that gap is the single highest-value next step, exactly as accurate to say here as it was for
+      the original pooling method in <code>FINDINGS.md</code>.
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Model calibration against real reported call volumes</h2>
+    <p class="subtle" id="calibration-note"></p>
+    <div id="calibration-table" class="calibration-table"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Mutual aid partner, by county</h2>
+    <p class="subtle">Real geography, not a placeholder: for each county, the closest <em>other county in
+      this dataset</em> by actual distance between their centroids &mdash; physical proximity is what
+      determines whether mutual aid is actually feasible. "Same regional EMS agency" means both counties
+      are confirmed members of the same real LEMSA (see Data Provenance) and likely already coordinate;
+      where that's not confirmed, this is still the closest real option, just not a documented existing
+      relationship.</p>
+    <div id="mutual-aid-table" class="mutual-aid-table"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Held-out performance: partial pooling vs baselines</h2>
+    <p class="subtle" id="validation-note"></p>
+    <div id="validation-summary" class="validation-summary"></div>
+    <p class="fine-print" id="dev-bar-caption"></p>
+    <div id="validation-strata" class="validation-strata"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Shrinkage weight by coefficient <span class="subtle-inline">(selected county, above)</span></h2>
+    <p class="subtle">Weight near 1 means the county's own estimate dominates; near 0 means it borrowed
+      almost entirely from the shared, cross-county estimate. Only counties under 60,000 population are
+      pooled at all (see Data provenance above) &mdash; Nevada, Yolo, and Placer counties show weight = 1
+      everywhere because they were fit standalone, not because they perfectly explain themselves.</p>
+    <div id="shrinkage-chart" class="shrinkage-chart"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Sensitivity sweep <span class="subtle-inline">(where partial pooling beats county-only estimation)</span></h2>
+    <p class="subtle">Gain (%) of partial pooling over county-only estimation, by county call volume and
+      &omega; (true between-county spread in temporal response). From the pre-registered sensitivity sweep
+      (simulated, method-validation only), not this app's 19 real counties.</p>
+    <div id="local-reference-callout" class="callout"></div>
+    <div id="sensitivity-heatmaps"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Honest framing</h2>
+    <blockquote id="findings-quote"></blockquote>
+  </section>
+
+</main>
+
+<main id="tab-faq" class="tab-panel">
+
+  <section class="panel">
+    <h2>FAQ: critiques, and how this product responds to them</h2>
+    <p class="subtle">Every question below is a real objection this project was tested against, not a
+      hypothetical. Where the objection is right, we say so and show what changed. Where it's
+      complicated, we show the actual research rather than argue around it.</p>
+  </section>
+
+  <section class="panel faq-group">
+    <h3>The data and the model</h3>
+
+    <details class="faq-item">
+      <summary>Is the data in this dashboard real?</summary>
+      <div class="faq-body">
+        <p>Partly. <strong>Real:</strong> county population, land area, and coordinates (US Census);
+          3 years of history plus a 16-day forecast of actual weather at each county's location
+          (Open-Meteo); EMS response rates by region (California EMSA's CY2020 report); ambulance
+          structure for 2 of 19 counties (verified from public agency pages).</p>
+        <p><strong>Modeled, not observed:</strong> the daily/hourly call counts themselves, transport
+          durations, ambulance fleet size for 17 of 19 counties, and the crew-assembly model. No county
+          publishes a public per-day dispatch log, so there's nothing to fit call counts to directly. See
+          the Data Provenance panel above and <code>data/DATA_SOURCES.md</code> for the full breakdown.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>How do you know the statistical method (partial pooling) actually works?</summary>
+      <div class="faq-body">
+        <p>Two different validations, because you can't check a new method against real data that
+          barely exists yet:</p>
+        <ul>
+          <li><strong>Simulated data with known ground truth</strong> (<code>pooling_experiment.py</code>,
+            <code>temporal_pooling.py</code>, <code>sensitivity_sweep.py</code>): generate data from a
+            known process, check whether partial pooling recovers it better than the alternatives, and map
+            exactly when it helps vs. hurts. It ties county-only estimation and beats naive lumping by a
+            modest, honestly-reported margin &mdash; not a rigged win.</li>
+          <li><strong>Real, heterogeneous inputs</strong> (this app's 19 real counties): swapping in real
+            weather and real population actually caught two real bugs (an intercept-mismatch in the
+            pooling math, and a tiering bug), which were found and fixed. That's evidence the pipeline is
+            robust under real conditions, not evidence it's shaky.</li>
+        </ul>
+        <p>What's <strong>not</strong> yet validated: whether the modeled call volumes match a specific
+          real county's actual calls day-to-day. That needs real dispatch data from a pilot county.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Why does a county sometimes show "High" risk almost every day that week?</summary>
+      <div class="faq-body">
+        <p>The Low/Below avg/Typical/Elevated/High label uses a <strong>fixed scale, the same for every
+          county</strong> (under 3% / 3&ndash;10% / 10&ndash;20% / 20&ndash;35% / over 35%) &mdash; it's not
+          graded on a curve against that county's own week. If a county's real weather and thin volunteer
+          roster put it above 35% most days, it'll show "High" most days. That's a genuine, if
+          uncomfortable, reading of the inputs, not a display bug &mdash; and it's more honest than a
+          relative scale that would quietly relabel a bad week as "average for you."</p>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel faq-group">
+    <h3>"Does faster response even save lives?"</h3>
+
+    <details class="faq-item">
+      <summary>Doesn't research show ambulance response time barely affects survival?</summary>
+      <div class="faq-body">
+        <p>Yes, and this checks out under scrutiny. A systematic review and meta-analysis covering 115
+          studies and 691,056 patients found "insufficient evidence to infer an association between EMS
+          response time and patient survival," with very low certainty under GRADE. A widely-cited trauma
+          study (Pons et al.) found no survival difference from an 8-minute response after controlling for
+          severity &mdash; benefit only appeared within 4 minutes for higher-risk patients.</p>
+        <p><strong>Why this doesn't kill the idea, but does narrow it:</strong> every one of those studies
+          is urban, comparing 5 vs. 10 minutes. None studies the rural failure mode, which usually isn't a
+          slow arrival &mdash; it's a call going <strong>unanswered entirely</strong>. Nobody has measured
+          the gap between "someone came" and "nobody came," because urban systems rarely have that gap.
+          That's why this product's outcome metric is framed as <strong>coverage gaps and crew-assembly
+          failures prevented</strong>, not "minutes shaved" &mdash; the literature doesn't support the
+          second claim, but it also doesn't address the first.</p>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel faq-group">
+    <h3>"Isn't the real problem staffing, not information?"</h3>
+
+    <details class="faq-item">
+      <summary>The volunteer shortage is the real crisis &mdash; doesn't that mean this doesn't help?</summary>
+      <div class="faq-body">
+        <p>The shortage is real and well-documented: ~53% of rural EMS agencies are volunteer-staffed;
+          more than 70% report difficulty finding volunteers; volunteer firefighter numbers are down ~25%
+          since 1984 while call volume roughly tripled; 63% of Wisconsin's volunteer-staffed agencies don't
+          provide continuous 24/7/365 coverage; 55% of rural agencies have 6 or fewer people providing 80%+
+          of their staffing.</p>
+        <p><strong>This product does not create volunteers or funding, and doesn't claim to.</strong> What
+          it can plausibly do: help point a fixed, scarce pool of people at the windows that matter most
+          (documented daytime/workday shortage patterns are real and structured, not random), make mutual
+          aid proactive instead of reactive (routine, frequent, and measurable &mdash; one mid-size county
+          logged 48 mutual-aid activations in under 5 months of 2025), and reduce the number of calls in the
+          first place through prevention outreach, which has the strongest real evidence of the three
+          levers (see below).</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>With 1 ambulance and 10 volunteers, there's only one way to allocate that truck &mdash; how does this help?</summary>
+      <div class="faq-body">
+        <p>It doesn't create a second truck. What it can influence, even with a hard 1-truck cap: <strong>who
+          is specifically on call, when</strong> (a lot of rural gaps are "nobody was on call," not "the
+          truck was busy" &mdash; see below), <strong>whether mutual aid was arranged before or after the
+          crisis</strong>, and <strong>whether the highest-risk residents were checked on before they had to
+          call at all.</strong> None of these require a second ambulance.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Isn't "ambulance already busy on another call" the wrong model for rural areas?</summary>
+      <div class="faq-body">
+        <p>Yes &mdash; and this dashboard used to model it that way, via urban Erlang-C queueing math. Rural
+          ambulance utilization typically runs 5&ndash;15% (vs. 30&ndash;50% urban targets), so simultaneous
+          calls colliding is rare by construction. The real, documented rural failure mode is different: a
+          crew doesn't form at all for the tone-out, because too much of a thin volunteer roster is
+          unreachable at that hour (commonly because of outside day jobs).</p>
+        <p>The model now combines both: P(uncovered) = 1 &minus; P(truck free) &times; P(crew assembles),
+          where the crew-assembly term is driven by time-of-day, weekday-vs-weekend, and roster size. The
+          exact per-volunteer availability numbers feeding that term are a labeled assumption informed by
+          published research, not fit to any real roster &mdash; see the "Why coverage gap = crew assembly"
+          panel above.</p>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel faq-group">
+    <h3>What evidence actually supports this working?</h3>
+
+    <details class="faq-item">
+      <summary>Is there real evidence, or is this just a modeling exercise?</summary>
+      <div class="faq-body">
+        <ul>
+          <li><strong>Prevention/community paramedicine has the strongest evidence of the three action
+            types</strong> &mdash; a rural Nova Scotia program cut annual ER trips 40%; a rural Ontario
+            program cut 911 activations 24% and hospital admissions after ED visits 55%; a Washington
+            program saw a 63% drop in 911 utilization among enrolled adults. One of these was a randomized
+            controlled trial, not just industry reporting.</li>
+          <li><strong>Demand-based deployment (System Status Management)</strong> is established EMS
+            doctrine going back decades &mdash; though the literature itself is honestly split on how much
+            it actually delivers vs. its reputation, which we're not going to paper over.</li>
+          <li><strong>Scheduling predictability improves volunteer retention</strong> (self-scheduling and
+            control over time commitment are documented retention factors) &mdash; a plausible, if modest,
+            way this indirectly helps the workforce problem without solving it.</li>
+          <li><strong>Mutual aid is standard, formalized emergency-management doctrine</strong> (FEMA's NIMS
+            mutual aid guideline), and real counties activate it dozens of times a year &mdash; but its
+            measured effectiveness specifically at closing rural coverage gaps is, honestly, thin in the
+            published literature.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Has this been validated against a real county's actual call data?</summary>
+      <div class="faq-body">
+        <p>No. Four counties in this dataset have a real, publicly reported annual call-volume figure we
+          could check the model against (see the Model Calibration panel above) &mdash; the model runs
+          13&ndash;41% low against all four, reported as-is rather than corrected for. That's the closest
+          thing to real validation available without a data-sharing agreement. A genuine pilot &mdash; a real
+          county sharing dispatch/CAD data, held out and checked against the forecast &mdash; is the actual
+          next step, the same way FINDINGS.md flagged real NEMSIS data as the highest-value next step for
+          the pooling method itself.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>So is this ready to show a county rep as "here's what your county's numbers are"?</summary>
+      <div class="faq-body">
+        <p>Not as validated fact for a specific county &mdash; not yet. The methodology and mechanics are
+          real and stress-tested; the specific percentages shown for any one county are modeled, not
+          observed. The honest pitch: "here's exactly what this would show once we have your agency's real
+          dispatch history &mdash; the engine and the three decisions it drives are real, the numbers are
+          illustrative until then." That's a fundable ask, and it's a stronger position than presenting
+          today's numbers as already proven.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Why is the prevention savings figure based on 150 people and not everyone flagged?</summary>
+      <div class="faq-body">
+        <p>Because a community paramedic can only realistically carry an active caseload of roughly 150
+          patients. An earlier version of this page multiplied published per-person savings by every
+          resident the risk model flags &mdash; which for a county like Mariposa meant ~1,890 people, about
+          11% of the entire county population, and produced a headline of $1.9&ndash;3.6M/year.</p>
+        <p>No real program enrolls a tenth of a county. That number would not survive thirty seconds of
+          questioning from a county administrator, so it's now computed on a realistic enrolled caseload
+          instead. The flagged count is still shown &mdash; it tells you how much unmet need exists and
+          how much a second community paramedic could add &mdash; but the dollar figure only counts people
+          a real program could actually serve.</p>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>How do you quantify how much this would save, and what won't you claim?</summary>
+      <div class="faq-body">
+        <p><strong>What we compute:</strong> an estimated count of 911 calls per year that arrive during
+          an uncovered hour (see the Coverage tab's "Without this forecast vs. with it" panel). This isn't
+          a new assumption layered on top &mdash; each hour's gap probability already <em>is</em> P(a call
+          arrives AND goes uncovered), so summing it across a representative year of real weather is a
+          direct expectation, not an extrapolation. For prevention, we show a dollar range drawn from
+          published community paramedicine programs' documented per-participant savings ($1,000&ndash;1,900/
+          year), applied to the number of residents flagged &mdash; explicitly labeled as based on other
+          programs' results, not measured for this county.</p>
+        <p><strong>What we deliberately do NOT compute:</strong> a "lives saved" or dollar figure derived
+          from converting a coverage-gap reduction into a mortality benefit (e.g. via a Value of Statistical
+          Life calculation). The systematic review discussed above found insufficient evidence linking EMS
+          response time to survival at the margins this product operates in &mdash; using that same weak
+          evidence to produce a monetized lives-saved number would be exactly the kind of "rigged win" this
+          project's own FINDINGS.md was written to avoid. An uncovered-calls-prevented count is honest and
+          useful without needing that unsupported step.</p>
+      </div>
+    </details>
+  </section>
+
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
