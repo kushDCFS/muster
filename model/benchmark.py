@@ -18,7 +18,7 @@ and comparing them would produce a number that misleads in both directions.
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 COHORT_PATH = "data/benchmark_cohort.json"
 
@@ -71,7 +71,7 @@ def contribute(findings, service_type="ems", label=None):
         "failure_rate": s["failure_rate"],
         "median_assembly_min": s["median_assembly_min"],
         "workday_penalty": findings["pattern"].get("workday_penalty_ratio"),
-        "added": datetime.utcnow().strftime("%Y-%m-%d"),
+        "added": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "label": label,
     }
     rows = _load()

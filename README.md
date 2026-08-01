@@ -201,6 +201,21 @@ The dashboard has six tabs, ordered for a live walkthrough:
 6. **FAQ** — every substantive critique this project has been tested against,
    answered directly, including the ones where the critique is correct.
 
+## Tests
+
+```
+pip install -r requirements.txt pytest
+pytest tests/ -q
+```
+
+36 tests across three files. `test_audit.py` and `test_optimizer.py` cover
+parsing and block selection; `tests/test_integrity.py` covers the claims this
+tool refuses to make — that a well-run agency gets a "no problem found" report
+rather than a manufactured one, that the funding packet declines to build a
+case it cannot support, and that no outcome or value-of-life figure appears
+anywhere. Those are locked by test because they are the easiest thing to
+regress and the most damaging to get wrong.
+
 ## Structure
 
 ```

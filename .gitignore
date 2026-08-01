@@ -27,3 +27,6 @@ Thumbs.db
 *.bak
 *.bak.*
 scratch/
+
+# Editor/tool config
+.claude/
