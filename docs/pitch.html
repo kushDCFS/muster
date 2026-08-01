@@ -173,27 +173,60 @@
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
   /* --- print / PDF export -------------------------------------------------
-     Submission portals usually want a PDF. Cmd/Ctrl-P -> Save as PDF gives one
-     landscape page per slide. Scroll-snap and fixed chrome are disabled so
-     nothing overlaps or repeats on every page. */
+     One landscape 16:9 page per slide. Content flows to its natural height
+     rather than being forced to 7.5in, which was pushing overflow onto the
+     following page. Type and spacing are scaled down so each slide fits. */
   @media print{
     @page{ size: 13.33in 7.5in; margin: 0; }
-    html,body{ background:#fff !important; }
+    html,body{ background:#fff !important; font-size:9.3px !important; }
     .deck{ height:auto !important; overflow:visible !important;
            scroll-snap-type:none !important; }
-    section{ min-height:auto !important; height:7.5in !important;
+    section{ min-height:0 !important; height:auto !important;
              page-break-after:always; break-after:page;
-             border-bottom:none !important; padding:0.5in 0.7in !important;
+             page-break-inside:avoid; break-inside:avoid;
+             border-bottom:none !important;
+             padding:0.34in 0.55in !important;
+             display:block !important;
              scroll-snap-align:none !important; }
     section:last-child{ page-break-after:auto; break-after:auto; }
     .rail,.count{ display:none !important; }
     input[type=range]{ display:none !important; }
-    .opt-ctl label::after{ content:" — 20 hrs/week shown"; }
-    .demo-bar .live{ border-color:#888 !important; color:#555 !important; }
+    .opt-ctl label::after{ content:" 4 shown at 20 hrs/week"; }
     a{ text-decoration:none; color:inherit; }
-    .wrap{ max-width:none; }
-    h1{ font-size:38pt !important; } h2{ font-size:24pt !important; }
-    p.lead{ font-size:13pt !important; }
+    .wrap{ max-width:none !important; }
+
+    h1{ font-size:30pt !important; margin-bottom:8pt !important; }
+    h2{ font-size:17pt !important; margin-bottom:6pt !important; max-width:28ch; }
+    h3{ font-size:9.5pt !important; }
+    p{ margin-bottom:4.5pt !important; }
+    p.lead{ font-size:9.8pt !important; max-width:70ch; }
+    .eyebrow{ font-size:7pt !important; margin-bottom:8pt !important; }
+    .stats{ margin:7pt 0 !important; }
+    .stat{ padding:7pt 9pt !important; }
+    .stat .n{ font-size:15.5pt !important; }
+    .stat .t{ font-size:6.6pt !important; margin-top:3pt !important; }
+    .stat .src{ font-size:5.8pt !important; margin-top:4pt !important; }
+    .cols{ gap:9pt !important; margin-top:3pt !important; }
+    .card{ padding:8.5pt !important; }
+    .card p{ font-size:7pt !important; }
+    .q{ padding:8pt 10pt !important; }
+    .q li{ font-size:6.6pt !important; margin-bottom:3pt !important; }
+    .q .lbl{ font-size:7.5pt !important; margin-bottom:6pt !important; }
+    .step{ padding:9pt !important; } .step p{ font-size:7pt !important; }
+    .lrow{ padding:5pt 9pt !important; }
+    .lrow div:last-child{ font-size:6.9pt !important; }
+    .ask{ padding:8pt 11pt !important; }
+    .ask div:last-child{ font-size:7.4pt !important; }
+    .asks{ gap:7pt !important; margin-top:10pt !important; }
+    blockquote{ font-size:8.6pt !important; padding:9pt 12pt !important; margin-top:9pt !important; }
+    .fine{ font-size:5.7pt !important; margin-top:7pt !important; line-height:1.45 !important; }
+    .demo{ margin-top:7pt !important; } .demo-body{ padding:9pt 11pt !important; }
+    .cmp>div{ padding:9pt 11pt !important; }
+    .cmp .big{ font-size:17pt !important; } .cmp .sub{ font-size:6.6pt !important; }
+    .opt-read .v{ font-size:12pt !important; }
+    .canvas-wrap{ padding:9pt 8pt 4pt !important; margin-top:7pt !important; }
+    svg{ min-width:0 !important; max-height:1.95in; }
+    .title-meta{ margin-top:18pt !important; font-size:7.5pt !important; }
     * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   }
 </style>
