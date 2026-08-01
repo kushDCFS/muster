@@ -18,6 +18,13 @@ Applies to **volunteer fire departments (24,208 in the US — 82% of all
 departments)** as much as rural EMS; the data and the failure are identical,
 and in most rural counties they are the same organization.
 
+## Pitch deck
+
+`docs/pitch.html` — 14 slides, opens in any browser, no build step. Two slides
+are live rather than screenshots: real turnout figures from 65,000 San
+Francisco dispatch records, and a working optimizer slider driving the real
+returns curve. `Cmd/Ctrl-P` exports it as a 16:9 PDF. See `docs/README.md`.
+
 ## Run
 
 ```
