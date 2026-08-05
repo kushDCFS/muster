@@ -167,3 +167,68 @@ class TestServiceTypeDetection:
         kind, mix = audit.detect_service_type(df)
         assert kind == "ems"
         assert mix is None
+
+
+class TestIncidentCollapse:
+    def test_multi_unit_rows_collapse_to_one_incident(self):
+        """CAD emits one row per responding unit. Coverage is an incident-level
+        property, so extra units on a call already counted must not inflate the
+        denominator or score a slow second-due unit as a failure."""
+        raw = _csv([
+            "A1,2024-03-01 10:00:00,2024-03-01 10:02:00",
+            "A1,2024-03-01 10:00:00,2024-03-01 10:19:00",
+            "A2,2024-03-01 12:00:00,2024-03-01 12:03:00",
+        ], "Incident,Unit Notified By Dispatch,Unit En Route")
+        df, _ = audit.parse_upload(raw, "x.csv")
+        out, info = audit.collapse_to_incidents(df)
+
+        assert info["collapsed"] is True
+        assert info["extra_unit_rows"] == 1
+        assert len(out) == 2
+        # the FIRST unit en route defines the incident, not the slowest
+        a1 = out[out.incident_id == "A1"].iloc[0]
+        assert (a1.enroute_time - a1.dispatch_time).total_seconds() / 60 == 2
+
+    def test_no_crew_signal_survives_the_collapse(self):
+        raw = _csv([
+            "B1,2024-03-01 10:00:00,,Mutual Aid - No Unit Available",
+            "B1,2024-03-01 10:00:00,2024-03-01 10:30:00,Transported",
+        ], "Incident,Unit Notified By Dispatch,Unit En Route,Disposition")
+        df, _ = audit.parse_upload(raw, "x.csv")
+        out, _ = audit.collapse_to_incidents(df)
+        assert audit.classify(out).no_crew.iloc[0]
+
+    def test_single_unit_export_is_left_alone(self):
+        raw = _csv(["C1,2024-03-01 10:00:00", "C2,2024-03-02 10:00:00"],
+                   "Incident,Unit Notified By Dispatch")
+        df, _ = audit.parse_upload(raw, "x.csv")
+        out, info = audit.collapse_to_incidents(df)
+        assert info["collapsed"] is False
+        assert len(out) == 2
+
+
+class TestUncertainty:
+    def test_wilson_interval_brackets_the_estimate(self):
+        lo, hi = audit.wilson_interval(58, 37733)
+        assert lo < 58 / 37733 < hi
+
+    def test_interval_never_leaves_zero_to_one(self):
+        for k, n in [(0, 100), (100, 100), (1, 3), (0, 1)]:
+            lo, hi = audit.wilson_interval(k, n)
+            assert 0.0 <= lo <= hi <= 1.0
+
+    def test_small_samples_get_wider_intervals(self):
+        """A 40-call agency must not be handed the same false precision as a
+        40,000-call one."""
+        n_lo, n_hi = audit.wilson_interval(4, 40)
+        w_lo, w_hi = audit.wilson_interval(4000, 40000)
+        assert (n_hi - n_lo) > (w_hi - w_lo) * 5
+
+    def test_analysis_reports_a_confidence_interval(self):
+        raw = _csv([f"I{i},2024-03-{i%28+1:02d} 10:00:00,2024-03-{i%28+1:02d} 10:03:00"
+                    for i in range(200)],
+                   "Incident,Unit Notified By Dispatch,Unit En Route")
+        df, _ = audit.parse_upload(raw, "x.csv")
+        s = audit.analyze(df)["summary"]
+        lo, hi = s["failure_rate_ci95"]
+        assert lo <= s["failure_rate"] <= hi

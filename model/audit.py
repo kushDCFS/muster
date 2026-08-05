@@ -176,6 +176,68 @@ def parse_upload(raw_bytes, filename=""):
     return df, report
 
 
+def collapse_to_incidents(df):
+    """One row per incident, keyed on the FIRST unit to go en route.
+
+    CAD and ePCR exports emit one row per unit dispatched, so a call with
+    three responding units appears three times. Two things go wrong if that is
+    analyzed as-is: the incident count is inflated (5.6% of rows in the SF
+    reference set are additional units on a call already counted), and a
+    second-due unit turning out slowly is scored as a coverage failure even
+    though the call was covered by the first unit.
+
+    Coverage is an incident-level property. A call is answered when the first
+    crew rolls, so that is the row kept. No-crew signals (mutual aid, an
+    unavailable disposition) survive the collapse if any unit row carries one.
+    """
+    if "incident_id" not in df.columns:
+        return df, {"collapsed": False, "reason": "no incident id column"}
+    if not df.incident_id.duplicated().any():
+        return df, {"collapsed": False, "reason": "already one row per incident"}
+
+    before = len(df)
+    ordered = df.sort_values("enroute_time", na_position="last")         if "enroute_time" in df.columns else df
+
+    agg = {"dispatch_time": "min"}
+    for col in ("enroute_time", "arrive_time"):
+        if col in ordered.columns:
+            agg[col] = "first"
+    for col in ("clear_time",):
+        if col in ordered.columns:
+            agg[col] = "max"
+    for col in ("unit", "agency", "incident_type"):
+        if col in ordered.columns:
+            agg[col] = "first"
+
+    out = ordered.groupby("incident_id", as_index=False).agg(agg)
+
+    # a no-crew signal on ANY unit row applies to the incident
+    for col, joiner in (("disposition", lambda s: " | ".join(sorted(set(s.dropna().astype(str))))),
+                        ("mutual_aid", lambda s: "Y" if _truthy(s).any() else "N")):
+        if col in ordered.columns:
+            merged = ordered.groupby("incident_id")[col].apply(joiner).reset_index()
+            out = out.merge(merged, on="incident_id", how="left")
+
+    return out, {"collapsed": True, "rows_before": int(before),
+                 "incidents_after": int(len(out)),
+                 "extra_unit_rows": int(before - len(out))}
+
+
+def wilson_interval(successes, n, z=1.96):
+    """Wilson score interval for a proportion.
+
+    Used instead of the normal approximation because failure counts here are
+    small relative to n -- a rural agency might log 40 failures in 800 calls,
+    where the normal interval misbehaves and can run below zero."""
+    if n == 0:
+        return (0.0, 0.0)
+    p = successes / n
+    d = 1 + z**2 / n
+    centre = (p + z**2 / (2 * n)) / d
+    half = (z / d) * ((p * (1 - p) / n + z**2 / (4 * n**2)) ** 0.5)
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
 def _truthy(series):
     return series.astype(str).str.strip().str.lower().isin(
         {"1", "y", "yes", "true", "t", "given", "received", "mutual aid", "mutualaid"})
@@ -262,6 +324,7 @@ def nfpa_1720_compliance(classified, service_type):
 def analyze(df, mutual_aid_fee=350, cost_per_departure=6872, with_grid=True):
     """Aggregate the classified incidents into the audit findings."""
     from . import optimizer as opt
+    df, collapse = collapse_to_incidents(df)
     c = classify(df)
     n = len(c)
     span_days = max((c.dispatch_time.max() - c.dispatch_time.min()).days, 1)
@@ -331,12 +394,14 @@ def analyze(df, mutual_aid_fee=350, cost_per_departure=6872, with_grid=True):
 
     failures_total = n_no_crew + n_severe
     failures_per_year = failures_total / years if years > 0 else failures_total
+    lo, hi = wilson_interval(failures_total, n)
 
     grid = opt.build_grid(c) if with_grid else None
     service_type, type_mix = detect_service_type(df)
     nfpa = nfpa_1720_compliance(c, service_type)
 
     return {
+        "incident_collapse": collapse,
         "service_type": service_type,
         "type_mix": type_mix,
         "nfpa_1720": nfpa,
@@ -357,6 +422,11 @@ def analyze(df, mutual_aid_fee=350, cost_per_departure=6872, with_grid=True):
             "failures_total": failures_total,
             "failures_per_year": round(failures_per_year, 1),
             "failure_rate": round(failures_total / n, 4) if n else 0.0,
+            "failure_rate_ci95": [round(v, 4) for v in wilson_interval(failures_total, n)],
+            "failures_per_year_ci95": [
+                round(lo * n / years, 1) if years else 0.0,
+                round(hi * n / years, 1) if years else 0.0,
+            ] if n else [0.0, 0.0],
             "median_assembly_min": round(med_assembly, 1) if med_assembly is not None else None,
             "p90_assembly_min": round(p90_assembly, 1) if p90_assembly is not None else None,
         },
