@@ -127,3 +127,46 @@ class TestBenchmarkPrivacy:
             assert field not in row
         assert set(row) <= {"service_type", "band", "calls_per_year", "failure_rate",
                             "median_assembly_min", "workday_penalty", "added", "label"}
+
+
+class TestDispositionReviewNotGuessing:
+    """Unrecognized disposition codes must be surfaced, never guessed at. A
+    single misclassified code moves the headline failure rate by ~45x on the
+    reference dataset, and that number lands in a funding request."""
+
+    def _frame(self, codes):
+        rows = [{"Incident": f"I{i}",
+                 "Unit Notified By Dispatch": f"2024-03-{i%28+1:02d} 10:00:00",
+                 "Unit En Route": f"2024-03-{i%28+1:02d} 10:02:00",
+                 "Disposition": c}
+                for i, c in enumerate(codes)]
+        import io as _io
+        buf = _io.StringIO(); pd.DataFrame(rows).to_csv(buf, index=False)
+        df, _ = audit.parse_upload(buf.getvalue().encode(), "x.csv")
+        return df
+
+    def test_unrecognized_codes_are_reported(self):
+        df = self._frame(["10-22"] * 10 + ["Transported"] * 90)
+        r = audit.analyze(df)["disposition_review"]
+        codes = {c["code"]: c for c in r["codes"]}
+        assert codes["10-22"]["counts_as_no_crew"] is False
+        assert codes["10-22"]["matched_by"] is None
+        assert r["unreviewed_incidents"] == 100
+
+    def test_unrecognized_code_is_not_silently_counted_as_failure(self):
+        df = self._frame(["10-22"] * 10 + ["Transported"] * 90)
+        assert audit.analyze(df)["summary"]["failures_total"] == 0
+
+    def test_agency_supplied_code_is_honoured(self):
+        df = self._frame(["10-22"] * 10 + ["Transported"] * 90)
+        f = audit.analyze(df, extra_no_crew=["10-22"])
+        assert f["summary"]["failures_total"] == 10
+        codes = {c["code"]: c for c in f["disposition_review"]["codes"]}
+        assert codes["10-22"]["matched_by"] == "your input"
+
+    def test_review_is_flagged_when_no_disposition_column(self):
+        import io as _io
+        buf = _io.StringIO()
+        pd.DataFrame([{"Unit Notified By Dispatch": "2024-03-01 10:00:00"}]).to_csv(buf, index=False)
+        df, _ = audit.parse_upload(buf.getvalue().encode(), "x.csv")
+        assert audit.analyze(df)["disposition_review"]["available"] is False

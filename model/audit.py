@@ -176,6 +176,53 @@ def parse_upload(raw_bytes, filename=""):
     return df, report
 
 
+def review_dispositions(df, extra_no_crew=()):
+    """Every distinct disposition code, with whether we recognized it.
+
+    Agencies use local codes. San Francisco's eight are all plain English and
+    none of them match the built-in pattern; a department using "10-22" or
+    "CANC-NU" for an unfilled call would match nothing either. Guessing at an
+    unrecognized code is the wrong move here -- a wrong guess silently changes
+    the failure count that a funding request is built on, and nobody would
+    catch it.
+
+    So unmatched codes are surfaced for the agency to classify instead. They
+    know what their own codes mean; we do not. `extra_no_crew` carries their
+    answer back in.
+    """
+    if "disposition" not in df.columns:
+        return {"available": False, "codes": [],
+                "note": "No disposition column in this export; classification "
+                        "rests on dispatch-to-en-route timing alone."}
+
+    extra = {str(e).strip().lower() for e in extra_no_crew if str(e).strip()}
+    counts = df["disposition"].dropna().astype(str).value_counts()
+    codes, unmatched = [], 0
+    for code, n in counts.items():
+        by_pattern = bool(NO_CREW_DISPOSITIONS.search(code))
+        by_user = code.strip().lower() in extra
+        if not (by_pattern or by_user):
+            unmatched += int(n)
+        codes.append({
+            "code": code, "count": int(n),
+            "counts_as_no_crew": by_pattern or by_user,
+            "matched_by": "pattern" if by_pattern else ("your input" if by_user else None),
+        })
+
+    return {
+        "available": True,
+        "distinct_codes": len(codes),
+        "codes": codes,
+        "unreviewed_incidents": unmatched,
+        "note": (
+            f"{len(codes)} distinct disposition codes. Codes not recognized as a no-crew "
+            "outcome are currently treated as covered calls. If any of them mean the call "
+            "went unanswered or was handed to another agency, mark them -- otherwise this "
+            "agency's failure count is understated."
+        ),
+    }
+
+
 def collapse_to_incidents(df):
     """One row per incident, keyed on the FIRST unit to go en route.
 
@@ -243,7 +290,7 @@ def _truthy(series):
         {"1", "y", "yes", "true", "t", "given", "received", "mutual aid", "mutualaid"})
 
 
-def classify(df):
+def classify(df, extra_no_crew=()):
     """Label every incident by how the crew-assembly went."""
     out = df.copy()
 
@@ -258,7 +305,11 @@ def classify(df):
     if "mutual_aid" in out.columns:
         flag_mutual |= _truthy(out.mutual_aid)
     if "disposition" in out.columns:
-        flag_mutual |= out.disposition.astype(str).str.contains(NO_CREW_DISPOSITIONS, na=False)
+        disp = out.disposition.astype(str)
+        flag_mutual |= disp.str.contains(NO_CREW_DISPOSITIONS, na=False)
+        extra = {str(e).strip().lower() for e in extra_no_crew if str(e).strip()}
+        if extra:
+            flag_mutual |= disp.str.strip().str.lower().isin(extra)
 
     never_enroute = out.assembly_min.isna() & (
         out.enroute_time.isna() if "enroute_time" in out.columns else True)
@@ -321,11 +372,13 @@ def nfpa_1720_compliance(classified, service_type):
     }
 
 
-def analyze(df, mutual_aid_fee=350, cost_per_departure=6872, with_grid=True):
+def analyze(df, mutual_aid_fee=350, cost_per_departure=6872, with_grid=True,
+            extra_no_crew=()):
     """Aggregate the classified incidents into the audit findings."""
     from . import optimizer as opt
     df, collapse = collapse_to_incidents(df)
-    c = classify(df)
+    disposition_review = review_dispositions(df, extra_no_crew)
+    c = classify(df, extra_no_crew)
     n = len(c)
     span_days = max((c.dispatch_time.max() - c.dispatch_time.min()).days, 1)
     years = span_days / 365.25
@@ -402,6 +455,7 @@ def analyze(df, mutual_aid_fee=350, cost_per_departure=6872, with_grid=True):
 
     return {
         "incident_collapse": collapse,
+        "disposition_review": disposition_review,
         "service_type": service_type,
         "type_mix": type_mix,
         "nfpa_1720": nfpa,

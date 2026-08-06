@@ -58,13 +58,19 @@ def fields():
 @router.post("/upload")
 async def upload(file: UploadFile = File(...),
                  agency_name: str = Form("Your agency"),
-                 mutual_aid_fee: float = Form(350)):
+                 mutual_aid_fee: float = Form(350),
+                 no_crew_codes: str = Form("")):
+    """`no_crew_codes` is a comma-separated list of the agency's own
+    disposition codes meaning the call went unanswered. Unrecognized codes are
+    reported back rather than guessed at -- see review_dispositions()."""
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "File too large (limit 20 MB).")
     try:
         df, parse_report = audit_model.parse_upload(raw, file.filename or "")
-        findings = audit_model.analyze(df, mutual_aid_fee=mutual_aid_fee)
+        extra = [c.strip() for c in no_crew_codes.split(",") if c.strip()]
+        findings = audit_model.analyze(df, mutual_aid_fee=mutual_aid_fee,
+                                       extra_no_crew=extra)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
